@@ -1,0 +1,15 @@
+{
+  "name": "geo-spatial-delivery-optimization",
+  "version": "1.0.0",
+  "description": "Geofencing-based restaurant discovery and location-aware delivery optimization (Colombo, Sri Lanka). User pins a location, all 15 restaurants are ranked by road distance, the 5 nearest answer and dispatch riders that travel along real roads.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  }
+}
