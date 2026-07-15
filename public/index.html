@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Geo-spatial Delivery - Colombo</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', sans-serif; }
+    body { height: 100vh; display: flex; flex-direction: column; }
+    #map { flex: 1; width: 100%; }
+    .control-panel {
+      position: absolute; top: 10px; right: 10px; background: white; padding: 20px;
+      border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); z-index: 1000;
+      min-width: 280px;
+    }
+    .control-panel h2 { font-size: 16px; margin-bottom: 10px; color: #333; }
+    .control-panel button {
+      background: #4CAF50; color: white; border: none; padding: 12px 20px;
+      border-radius: 5px; cursor: pointer; font-weight: 600; width: 100%;
+      font-size: 14px; transition: background 0.3s;
+    }
+    .control-panel button:hover { background: #45a049; }
+    .control-panel button:disabled { background: #ccc; cursor: not-allowed; }
+    .status { margin-top: 10px; font-size: 12px; color: #666; }
+    .restaurant-list { margin-top: 15px; max-height: 300px; overflow-y: auto; }
+    .restaurant-item {
+      padding: 10px; margin: 5px 0; background: #f9f9f9; border-radius: 5px;
+      border-left: 4px solid #4CAF50; cursor: pointer; transition: all 0.2s;
+    }
+    .restaurant-item:hover { background: #e8f5e9; transform: translateX(5px); }
+    .restaurant-item .name { font-weight: 600; font-size: 14px; }
+    .restaurant-item .distance { font-size: 12px; color: #666; }
+    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+    .legend { position: absolute; bottom: 30px; left: 10px; background: white; padding: 10px; border-radius: 5px; font-size: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 1000; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  
+  <div class="control-panel">
+    <h2>📍 Pin Your Location</h2>
+    <p style="font-size: 12px; color: #666; margin-bottom: 10px;">
+      Click on the map to set your location (drag 📍 to move), then click "Call"
+    </p>
+    <button id="callButton" disabled>📞 Call</button>
+    <div class="status" id="status">Click on the map to select your location...</div>
+    <div class="restaurant-list" id="restaurantList"></div>
+  </div>
+
+  <div class="legend">
+    <div>📍 You are here (draggable)</div>
+    <div>🏨 Restaurant</div>
+    <div>🏍️ Rider (road path)</div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // Initialize Colombo map
+    const map = L.map('map').setView([6.9271, 79.8612], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap Sri Lanka',
+      maxZoom: 19
+    }).addTo(map);
+
+    let customerMarker = null;
+    let riderMarkers = [];
+    let riderRoutes = [];
+
+    // Icons - using emoji divIcons
+    const customerIcon = L.divIcon({
+      className: '',
+      html: '<div style="font-size: 24px; cursor: move;">📍</div>',
+      iconSize: [24, 24],
+      iconAnchor: [12, 24]
+    });
+
+    const restaurantIcon = L.divIcon({
+      className: '',
+      html: '<div style="font-size: 24px;">🏨</div>',
+      iconSize: [24, 24],
+      iconAnchor: [12, 24]
+    });
+
+    const riderIcon = L.divIcon({
+      className: '',
+      html: '<div style="font-size: 24px;">🏍️</div>',
+      iconSize: [24, 24],
+      iconAnchor: [12, 24]
+    });
+
+    // Load all 15 hotels/restaurants on init
+    (async function initRestaurants() {
+      const response = await fetch('/api/restaurants');
+      const data = await response.json();
+      data.restaurants.forEach(rest => {
+        L.marker([rest.lat, rest.lng], { icon: restaurantIcon })
+          .addTo(map)
+          .bindPopup(`<b>🏨 ${rest.name}</b><br>${rest.address}`);
+      });
+    })();
+
+    // Set draggable customer location
+    function setCustomerLocation(lat, lng) {
+      if (customerMarker) {
+        map.removeLayer(customerMarker);
+      }
+      customerMarker = L.marker([lat, lng], { 
+        icon: customerIcon,
+        draggable: true 
+      }).addTo(map);
+      
+      customerMarker.on('dragend', () => {
+        const pos = customerMarker.getLatLng();
+        document.getElementById('status').textContent = `Location moved: ${pos.lat.toFixed(4)}, ${pos.lng.toFixed(4)}`;
+        clearRiders();
+      });
+      
+      customerMarker.bindPopup("📍 Your location (drag me!)").openPopup();
+      document.getElementById('callButton').disabled = false;
+      document.getElementById('status').textContent = `Location set: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      clearRiders();
+    }
+
+    // Click to set location
+    map.on('click', (e) => setCustomerLocation(e.latlng.lat, e.latlng.lng));
+
+    // Clear riders
+    function clearRiders() {
+      riderMarkers.forEach(m => map.removeLayer(m));
+      riderRoutes.forEach(r => map.removeLayer(r));
+      riderMarkers = [];
+      riderRoutes = [];
+      document.getElementById('restaurantList').innerHTML = '';
+    }
+
+    // Animate ONE rider along route
+    function animateRiderAlongRoute(routeGeometry, restaurant) {
+      if (!routeGeometry || !routeGeometry.coordinates) return;
+      const coordinates = routeGeometry.coordinates.map(c => [c[1], c[0]]);
+      let currentIndex = 0;
+      
+      const riderMarker = L.marker(coordinates[0], { icon: riderIcon }).addTo(map);
+      riderMarkers.push(riderMarker);
+      const routeLine = L.polyline(coordinates, { color: '#FF5722', weight: 4 }).addTo(map);
+      riderRoutes.push(routeLine);
+
+      const interval = setInterval(() => {
+        currentIndex++;
+        if (currentIndex >= coordinates.length) {
+          clearInterval(interval);
+          riderMarker.bindPopup(`🏍️ ${restaurant.name} rider arrived!`).openPopup();
+        } else {
+          riderMarker.setLatLng(coordinates[currentIndex]);
+        }
+      }, 50);
+    }
+
+    // Call button - find NEAREST (only one) restaurant
+    document.getElementById('callButton').addEventListener('click', async () => {
+      if (!customerMarker) return;
+      
+      const latLng = customerMarker.getLatLng();
+      const button = document.getElementById('callButton');
+      const status = document.getElementById('status');
+      
+      button.disabled = true;
+      button.textContent = 'Calling...';
+      status.textContent = 'Finding nearest restaurant...';
+      clearRiders();
+
+      try {
+        const response = await fetch('/api/nearest-restaurants', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lat: latLng.lat, lng: latLng.lng })
+        });
+        
+        const data = await response.json();
+        const list = document.getElementById('restaurantList');
+        
+        if (data.nearestRestaurants && data.nearestRestaurants.length > 0) {
+          // Show top 5 in list (for reference)
+          data.nearestRestaurants.forEach((rest, index) => {
+            const item = document.createElement('div');
+            item.className = 'restaurant-item';
+            item.innerHTML = `<div class="name">${index + 1}. ${rest.name}</div><div class="distance">${(rest.distance / 1000).toFixed(2)} km</div>`;
+            list.appendChild(item);
+          });
+          
+          // But dispatch ONLY the nearest (first one) rider
+          const nearest = data.nearestRestaurants[0];
+          animateRiderAlongRoute(nearest.geometry, nearest);
+          
+          status.textContent = `🏨 ${nearest.name} is sending their rider!`;
+        }
+      } catch (error) {
+        status.textContent = 'Error: ' + error.message;
+      }
+      
+      button.disabled = false;
+      button.textContent = '📞 Call';
+    });
+  </script>
+</body>
+</html>
